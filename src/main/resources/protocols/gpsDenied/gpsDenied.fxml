@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.text.Font?>
+
+<VBox maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity"
+      prefWidth="480.0" xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1">
+   <children>
+
+      <!-- ── Starting location ─────────────────────────────────── -->
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="10.0" right="10.0" top="10.0"/></VBox.margin>
+         <children>
+            <Label text="Leader starting location:">
+               <font><Font name="System Bold Italic" size="13.0"/></font>
+            </Label>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Latitude:"/>
+            <TextField fx:id="latitude" prefWidth="170.0" text="%latitude" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="°"/>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Longitude:"/>
+            <TextField fx:id="longitude" prefWidth="170.0" text="%longitude" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="°"/>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Heading (yaw, 0=North clockwise):"/>
+            <TextField fx:id="yaw" prefWidth="170.0" text="%yaw" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="°"/>
+         </children>
+      </HBox>
+
+      <!-- ── Flight parameters ──────────────────────────────────── -->
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="10.0" right="10.0" top="10.0"/></VBox.margin>
+         <children>
+            <Label text="Flight parameters:">
+               <font><Font name="System Bold Italic" size="13.0"/></font>
+            </Label>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Cruise altitude:"/>
+            <TextField fx:id="altitude" prefWidth="170.0" text="%altitude" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="m"/>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Leader speed:"/>
+            <TextField fx:id="leaderSpeed" prefWidth="170.0" text="%leaderSpeed" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="m/s"/>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Leader flight distance  (X):"/>
+            <TextField fx:id="leaderFlightDistance" prefWidth="170.0" text="%leaderFlightDistance" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="m"/>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Observer side distance  (Y):"/>
+            <TextField fx:id="observerSideDistance" prefWidth="170.0" text="%observerSideDistance" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="m"/>
+         </children>
+      </HBox>
+
+      <!-- ── Position estimation ──────────────────────────────── -->
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="10.0" right="10.0" top="10.0"/></VBox.margin>
+         <children>
+            <Label text="Position estimation:">
+               <font><Font name="System Bold Italic" size="13.0"/></font>
+            </Label>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Estimation radius:"/>
+            <TextField fx:id="estimationRadius" prefWidth="170.0" text="%estimationRadius" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="m"/>
+         </children>
+      </HBox>
+
+      <!-- ── OK button ──────────────────────────────────────────── -->
+      <HBox alignment="CENTER_RIGHT" prefHeight="40.0">
+         <VBox.margin><Insets right="15.0" top="10.0"/></VBox.margin>
+         <children>
+            <Button fx:id="okButton" mnemonicParsing="false" text="OK"/>
+         </children>
+      </HBox>
+
+   </children>
+</VBox>
