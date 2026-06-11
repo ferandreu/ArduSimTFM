@@ -30,15 +30,13 @@ public class PositionSample {
      * True when the leader's true position lies inside every in-range observer's
      * coverage circle (radius = observerSideDistance + 75 m for 802.11a, or
      * fixedRange for FIXED_RANGE model).
-     */
-    public final boolean inIntersectionArea;
+     */;
 
     /** Sample with a valid position estimate. */
     public PositionSample(long timeMs,
                           double estX, double estY,
                           double trueX, double trueY,
-                          int observersInRange,
-                          boolean inIntersectionArea) {
+                          int observersInRange) {
         this.timeMs             = timeMs;
         this.estX               = estX;
         this.estY               = estY;
@@ -48,14 +46,12 @@ public class PositionSample {
         double dy = estY - trueY;
         this.error2D            = Math.sqrt(dx * dx + dy * dy);
         this.observersInRange   = observersInRange;
-        this.inIntersectionArea = inIntersectionArea;
     }
 
     /** Sample without a position estimate — true position and area flag only. */
     public PositionSample(long timeMs,
                           double trueX, double trueY,
-                          int observersInRange,
-                          boolean inIntersectionArea) {
+                          int observersInRange) {
         this.timeMs             = timeMs;
         this.estX               = Double.NaN;
         this.estY               = Double.NaN;
@@ -63,7 +59,6 @@ public class PositionSample {
         this.trueY              = trueY;
         this.error2D            = Double.NaN;
         this.observersInRange   = observersInRange;
-        this.inIntersectionArea = inIntersectionArea;
     }
 
     public boolean hasEstimate() {

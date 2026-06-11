@@ -109,11 +109,11 @@
          </children>
       </HBox>
 
-      <!-- ── Position estimation ──────────────────────────────── -->
+      <!-- ── Intermediate waypoint ─────────────────────────────── -->
       <HBox prefHeight="30.0">
          <VBox.margin><Insets left="10.0" right="10.0" top="10.0"/></VBox.margin>
          <children>
-            <Label text="Position estimation:">
+            <Label text="Intermediate waypoint (optional):">
                <font><Font name="System Bold Italic" size="13.0"/></font>
             </Label>
          </children>
@@ -122,11 +122,32 @@
       <HBox prefHeight="30.0">
          <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
          <children>
-            <Label prefWidth="220.0" text="Estimation radius:"/>
-            <TextField fx:id="estimationRadius" prefWidth="170.0" text="%estimationRadius" HBox.hgrow="ALWAYS">
+            <Label prefWidth="220.0" text="Distance along heading (0=none):"/>
+            <TextField fx:id="midpointAlong" prefWidth="170.0" text="%midpointAlong" HBox.hgrow="ALWAYS">
                <HBox.margin><Insets right="10.0"/></HBox.margin>
             </TextField>
             <Label text="m"/>
+         </children>
+      </HBox>
+
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="20.0" right="10.0"/></VBox.margin>
+         <children>
+            <Label prefWidth="220.0" text="Perpendicular offset (+right, -left):"/>
+            <TextField fx:id="midpointRight" prefWidth="170.0" text="%midpointRight" HBox.hgrow="ALWAYS">
+               <HBox.margin><Insets right="10.0"/></HBox.margin>
+            </TextField>
+            <Label text="m"/>
+         </children>
+      </HBox>
+
+      <!-- ── Position estimation ──────────────────────────────── -->
+      <HBox prefHeight="30.0">
+         <VBox.margin><Insets left="10.0" right="10.0" top="10.0"/></VBox.margin>
+         <children>
+            <Label text="Position estimation:">
+               <font><Font name="System Bold Italic" size="13.0"/></font>
+            </Label>
          </children>
       </HBox>
 

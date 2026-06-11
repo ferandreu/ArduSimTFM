@@ -59,7 +59,6 @@ class GpsDeniedTalkerThread extends Thread {
         output.writeInt(numUAV);
         output.writeDouble(loc.x);
         output.writeDouble(loc.y);
-        output.writeLong(System.currentTimeMillis());   // sent timestamp for delay estimation
         output.flush();
         link.sendBroadcastMessage(Arrays.copyOf(outBuffer, output.position()));
     }

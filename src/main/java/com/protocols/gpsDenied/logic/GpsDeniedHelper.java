@@ -39,6 +39,7 @@ import javax.swing.*;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -101,12 +102,16 @@ public class GpsDeniedHelper extends ProtocolHelper {
         GpsDeniedParam.leaderLanded.set(false);
         GpsDeniedParam.estimatedLeaderPosition.set(null);
         GpsDeniedParam.lastValidEstimateTimeMs.set(0L);
-        GpsDeniedParam.observerLastHeard   = new long[numUAVs];
-        GpsDeniedParam.observerLastPos     = new Location2DUTM[numUAVs];
-        GpsDeniedParam.observerLastDelay   = new long[numUAVs];
-        GpsDeniedParam.observerPacketCount = new long[numUAVs];
-        GpsDeniedParam.leaderPositionLog  = Collections.synchronizedList(new ArrayList<>());
+        GpsDeniedParam.observerLastHeard        = new long[numUAVs];
+        GpsDeniedParam.observerLastPos          = new Location2DUTM[numUAVs];
+        @SuppressWarnings("unchecked")
+        ArrayDeque<Long>[] ts = new ArrayDeque[numUAVs];
+        for (int i = 0; i < numUAVs; i++) ts[i] = new ArrayDeque<>();
+        GpsDeniedParam.observerPacketTimestamps = ts;
+        GpsDeniedParam.leaderPositionLog    = Collections.synchronizedList(new ArrayList<>());
         GpsDeniedParam.observerRangeCircles = new DrawableCircleGeo[numUAVs];
+        GpsDeniedParam.intermediateTarget   = null;
+        GpsDeniedParam.leaderStartUTM       = null;
 
         Formation linear = FormationFactory.newFormation(Formation.Layout.LINEAR);
         linear.init(numUAVs, 10.0);
@@ -127,6 +132,7 @@ public class GpsDeniedHelper extends ProtocolHelper {
                 GpsDeniedParam.centerLongitude,
                 0.0);
         Location3DUTM centerUTM = centerRef.getUTMLocation3D();
+        GpsDeniedParam.leaderStartUTM = new Location2DUTM(centerUTM.x, centerUTM.y);
 
         double yaw = GpsDeniedParam.centerYaw;
         double X   = GpsDeniedParam.leaderFlightDistance;
@@ -138,11 +144,19 @@ public class GpsDeniedHelper extends ProtocolHelper {
         double dxRight =  Math.cos(yaw);
         double dyRight = -Math.sin(yaw);
 
-        // Leader (UAV 0)
+        // Leader (UAV 0): final target and optional intermediate waypoint
         GpsDeniedParam.flyingTargets[0] = new Location3DUTM(
                 centerUTM.x + dxAlong * X,
                 centerUTM.y + dyAlong * X,
                 alt);
+        if (GpsDeniedParam.midpointAlong > 0) {
+            GpsDeniedParam.intermediateTarget = new Location3DUTM(
+                    centerUTM.x + dxAlong * GpsDeniedParam.midpointAlong + dxRight * GpsDeniedParam.midpointRight,
+                    centerUTM.y + dyAlong * GpsDeniedParam.midpointAlong + dyRight * GpsDeniedParam.midpointRight,
+                    alt);
+        } else {
+            GpsDeniedParam.intermediateTarget = null;
+        }
         startingLocation[0] = Pair.with(centerRef.getGeoLocation(), yaw);
 
         // Observers (UAV 1…N-1): evenly spaced along the route, alternating sides.
@@ -175,8 +189,16 @@ public class GpsDeniedHelper extends ProtocolHelper {
             double startLat = GpsDeniedParam.centerLatitude;
             double startLon = GpsDeniedParam.centerLongitude;
             Location2DGeo leaderEnd = GpsDeniedParam.flyingTargets[0].getGeo();
-            missions[0] = buildMission(startLat, startLon,
-                                       leaderEnd.latitude, leaderEnd.longitude, alt);
+            if (GpsDeniedParam.intermediateTarget != null) {
+                Location2DGeo midGeo = GpsDeniedParam.intermediateTarget.getGeo();
+                missions[0] = buildLeaderMissionWithMidpoint(
+                        startLat, startLon,
+                        midGeo.latitude, midGeo.longitude,
+                        leaderEnd.latitude, leaderEnd.longitude, alt);
+            } else {
+                missions[0] = buildMission(startLat, startLon,
+                                           leaderEnd.latitude, leaderEnd.longitude, alt);
+            }
             for (int i = 0; i < numObservers; i++) {
                 Location2DGeo obsGeo = GpsDeniedParam.flyingTargets[i + 1].getGeo();
                 missions[i + 1] = buildMission(obsGeo.latitude, obsGeo.longitude,
@@ -189,6 +211,20 @@ public class GpsDeniedHelper extends ProtocolHelper {
         API.getCopter(0).getMissionHelper().setMissionsLoaded(missions);
 
         return startingLocation;
+    }
+
+    /** Leader mission with an intermediate waypoint shown on the map between takeoff and final target. */
+    private List<Waypoint> buildLeaderMissionWithMidpoint(
+            double sLat, double sLon,
+            double midLat, double midLon,
+            double eLat, double eLon, double alt) {
+        List<Waypoint> m = new ArrayList<>();
+        m.add(new Waypoint(0, true,  MavFrame.MAV_FRAME_GLOBAL_RELATIVE_ALT, WP_CMD,      0,0,0,0, sLat,   sLon,   0,   1));
+        m.add(new Waypoint(1, false, MavFrame.MAV_FRAME_GLOBAL_RELATIVE_ALT, TAKEOFF_CMD, 0,0,0,0, sLat,   sLon,   alt, 1));
+        m.add(new Waypoint(2, false, MavFrame.MAV_FRAME_GLOBAL,               WP_CMD,      0,0,0,0, midLat, midLon, alt, 1));
+        m.add(new Waypoint(3, false, MavFrame.MAV_FRAME_GLOBAL,               WP_CMD,      0,0,0,0, eLat,   eLon,   alt, 1));
+        m.add(new Waypoint(4, false, MavFrame.MAV_FRAME_GLOBAL,               LAND_CMD,    0,0,0,0, eLat,   eLon,   0,   0));
+        return m;
     }
 
     private List<Waypoint> buildMission(double sLat, double sLon,
@@ -251,7 +287,7 @@ public class GpsDeniedHelper extends ProtocolHelper {
         BasicStroke stroke = new BasicStroke(1.5f);
         Color color = new Color(0, 100, 220);
         double R = (Param.selectedWirelessModel == WirelessModel.FIXED_RANGE)
-                ? Param.fixedRange : GpsDeniedParam.estimationRadius;
+                ? Param.fixedRange : GpsDeniedParam.MAX_RANGE_5GHZ_M;
         for (int i = 1; i < numUAVs; i++) {
             try {
                 Location2DGeo center = GpsDeniedParam.flyingTargets[i].getGeo();
@@ -280,7 +316,6 @@ public class GpsDeniedHelper extends ProtocolHelper {
         double sumErr = 0, maxErr = 0, minErr = Double.MAX_VALUE;
         int estimatedCount = 0, inAreaCount = 0;
         for (PositionSample s : log) {
-            if (s.inIntersectionArea) inAreaCount++;
             if (!s.hasEstimate()) continue;
             estimatedCount++;
             sumErr += s.error2D;
@@ -333,16 +368,15 @@ public class GpsDeniedHelper extends ProtocolHelper {
         long expStartMs = arduSim.getExperimentStartTime();
 
         StringBuilder sb = new StringBuilder(log.size() * 120 + 150);
-        sb.append("time_s,est_x,est_y,true_x,true_y,error_2d_m,observers_in_range,en_area_interseccion\n");
+        sb.append("time_s,est_x,est_y,true_x,true_y,error_2d_m,observers_in_range\n");
 
         for (PositionSample s : log) {
             double t = (s.timeMs - expStartMs) / 1000.0;
             String estX  = s.hasEstimate() ? String.format(Locale.US, "%.3f", s.estX)   : "";
             String estY  = s.hasEstimate() ? String.format(Locale.US, "%.3f", s.estY)   : "";
             String err   = s.hasEstimate() ? String.format(Locale.US, "%.3f", s.error2D): "";
-            String area  = s.inIntersectionArea ? "Si" : "No";
-            sb.append(String.format(Locale.US, "%.3f,%s,%s,%.3f,%.3f,%s,%d,%s%n",
-                    t, estX, estY, s.trueX, s.trueY, err, s.observersInRange, area));
+            sb.append(String.format(Locale.US, "%.3f,%s,%s,%.3f,%.3f,%s,%d%n",
+                    t, estX, estY, s.trueX, s.trueY, err, s.observersInRange));
         }
 
         FileTools ft = API.getFileTools();

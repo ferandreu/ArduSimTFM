@@ -35,8 +35,10 @@ public class GpsDeniedSimProperties {
     public double altitude             = GpsDeniedParam.altitude;
     /** Leader cruise speed (m/s). */
     public double leaderSpeed          = GpsDeniedParam.leaderSpeed;
-    /** Circle radius for geometric intersection (m). */
-    public double estimationRadius     = GpsDeniedParam.estimationRadius;
+    /** Distance along heading to the optional intermediate waypoint (m). 0 = disabled. */
+    public double midpointAlong        = GpsDeniedParam.midpointAlong;
+    /** Perpendicular offset of the intermediate waypoint (m, positive = right). */
+    public double midpointRight        = GpsDeniedParam.midpointRight;
 
     // ────────────────────────────────────────────────────────────────────
 
@@ -88,7 +90,9 @@ public class GpsDeniedSimProperties {
         if (leaderSpeed          <= 0) return "leaderSpeed";
         if (leaderFlightDistance <= 0) return "leaderFlightDistance";
         if (observerSideDistance <= 0) return "observerSideDistance";
-        if (estimationRadius     <= 0) return "estimationRadius";
+        if (midpointAlong < 0)         return "midpointAlong (must be >= 0; use 0 to disable)";
+        if (midpointAlong > 0 && midpointAlong >= leaderFlightDistance)
+            return "midpointAlong must be less than leaderFlightDistance";
         return "";
     }
 
@@ -100,6 +104,7 @@ public class GpsDeniedSimProperties {
         GpsDeniedParam.leaderSpeed          = leaderSpeed;
         GpsDeniedParam.leaderFlightDistance = leaderFlightDistance;
         GpsDeniedParam.observerSideDistance = observerSideDistance;
-        GpsDeniedParam.estimationRadius     = estimationRadius;
+        GpsDeniedParam.midpointAlong        = midpointAlong;
+        GpsDeniedParam.midpointRight        = midpointRight;
     }
 }

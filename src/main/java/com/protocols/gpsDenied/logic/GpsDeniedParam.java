@@ -5,6 +5,7 @@ import es.upv.grc.mapper.DrawableCircleGeo;
 import es.upv.grc.mapper.Location2DUTM;
 import es.upv.grc.mapper.Location3DUTM;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,22 +31,30 @@ public class GpsDeniedParam {
     public static volatile double leaderFlightDistance = 2000.0;
     /** (Y) Perpendicular distance of observer drones from the leader's path (metres). */
     public static volatile double observerSideDistance = 500.0;
+    /** Distance along the heading to the optional intermediate waypoint (metres). 0 = disabled. */
+    public static volatile double midpointAlong = 0.0;
+    /** Perpendicular offset of the intermediate waypoint (metres, positive = right, negative = left). */
+    public static volatile double midpointRight = 0.0;
     /** Cruise altitude for all UAVs (metres, relative to takeoff point). */
     public static volatile double altitude = 20.0;
     /** Leader cruise speed (m/s). */
     public static volatile double leaderSpeed = 10.0;
-    /** Circle radius (m) used for the geometric intersection algorithm.
-     *  Should be close to the actual communication range.
-     *  When using a propagation model (non FIXED_RANGE), set this manually. */
-    public static volatile double estimationRadius = 1000.0;
+    // ── DISTANCE_5GHZ propagation model constants ────────────────────────
+    // Packet-loss probability vs distance d (m): pLoss = A·d² + B·d
+    // (must match RangeCalculusThread.isInRange).
+    public static final double PROP_LOSS_A = 5.335e-7;   // 1/m²
+    public static final double PROP_LOSS_B = 3.395e-5;   // 1/m
+    /** Distance where pLoss = 1: the model's true maximum range (~1370 m). */
+    public static final double MAX_RANGE_5GHZ_M =
+            (-PROP_LOSS_B + Math.sqrt(PROP_LOSS_B * PROP_LOSS_B + 4.0 * PROP_LOSS_A)) / (2.0 * PROP_LOSS_A);
 
     // ── Timing (milliseconds) ────────────────────────────────────────────
     public static final long STATE_CHANGE_TIMEOUT = 250;
     public static final long HOVER_CHECK_PERIOD   = 500;
     /** How often each observer broadcasts its position (ms). */
-    public static final long BROADCAST_PERIOD_MS  = 500;
+    public static final long BROADCAST_PERIOD_MS  = 250;
     /** An observer is considered out of range if not heard for this long (ms). */
-    public static final long OBSERVER_TIMEOUT_MS  = 1500;
+    public static final long OBSERVER_TIMEOUT_MS  = 750;
 
     // ── Runtime state ────────────────────────────────────────────────────
     /**
@@ -54,6 +63,16 @@ public class GpsDeniedParam {
      * Index = numUAV.  Size = API.getArduSim().getNumUAVs().
      */
     public static Location3DUTM[] flyingTargets;
+
+    /**
+     * Optional intermediate waypoint for the leader.
+     * Null when midpointAlong == 0 (straight line to final target).
+     * Computed in setStartingLocation().
+     */
+    public static volatile Location3DUTM intermediateTarget = null;
+
+    /** UTM position of the leader's takeoff point (route origin). Computed in setStartingLocation(). */
+    public static volatile Location2DUTM leaderStartUTM = null;
 
     /** Set to true by the leader thread once it has landed; observers poll this. */
     public static final AtomicBoolean leaderLanded = new AtomicBoolean(false);
@@ -76,19 +95,15 @@ public class GpsDeniedParam {
     public static Location2DUTM[] observerLastPos;
 
     /**
-     * Per-UAV transmission delay (ms) of the last received broadcast:
-     * delay = receiveTime - sentTimestamp.  Used as a distance proxy for the
-     * delay-weighted centroid.  Clamped to >= 1.  Index = numUAV of the observer.
-     */
-    public static long[] observerLastDelay;
-
-    /**
-     * Cumulative count of OBSERVER_POSITION packets received from each observer
-     * since the experiment started.  Used as a reception-rate proxy: fewer packets
-     * from observer i → i is farther away (lower P(reception)).
+     * Per-observer queue of reception timestamps (ms) for OBSERVER_POSITION packets.
+     * Only the last PACKET_WINDOW_MS (30 s) of timestamps are kept; older entries are
+     * pruned lazily in GpsDeniedLeaderListenerThread before each estimation cycle.
+     * The queue size at any instant equals the packet count within the sliding window,
+     * which is used as the reception-rate proxy for applyPacketRateCorrection.
      * Index = numUAV of the observer (1..N-1); index 0 unused.
      */
-    public static long[] observerPacketCount;
+    @SuppressWarnings("unchecked")
+    public static ArrayDeque<Long>[] observerPacketTimestamps = new ArrayDeque[0];
 
     /**
      * Leader's estimated UTM position computed as the delay-weighted centroid

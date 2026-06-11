@@ -28,7 +28,8 @@ public class GpsDeniedDialogController {
     @FXML private TextField leaderSpeed;
     @FXML private TextField leaderFlightDistance;
     @FXML private TextField observerSideDistance;
-    @FXML private TextField estimationRadius;
+    @FXML private TextField midpointAlong;
+    @FXML private TextField midpointRight;
     @FXML private Button    okButton;
 
     public GpsDeniedDialogController(ResourceBundle resources,
@@ -47,7 +48,8 @@ public class GpsDeniedDialogController {
         leaderSpeed.setTextFormatter(new TextFormatter<>(ArduSimTools.doubleFilter));
         leaderFlightDistance.setTextFormatter(new TextFormatter<>(ArduSimTools.doubleFilter));
         observerSideDistance.setTextFormatter(new TextFormatter<>(ArduSimTools.doubleFilter));
-        estimationRadius.setTextFormatter(new TextFormatter<>(ArduSimTools.doubleFilter));
+        midpointAlong.setTextFormatter(new TextFormatter<>(ArduSimTools.doubleFilter));
+        midpointRight.setTextFormatter(new TextFormatter<>(ArduSimTools.doubleFilter));
 
         okButton.setOnAction(e -> {
             if (properties.storeParameters(buildProperties(), resources)) {
