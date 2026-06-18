@@ -98,16 +98,14 @@ public class GpsDeniedParam {
      * Per-observer queue of reception timestamps (ms) for OBSERVER_POSITION packets.
      * Only the last PACKET_WINDOW_MS (30 s) of timestamps are kept; older entries are
      * pruned lazily in GpsDeniedLeaderListenerThread before each estimation cycle.
-     * The queue size at any instant equals the packet count within the sliding window,
-     * which is used as the reception-rate proxy for applyPacketRateCorrection.
+     * The queue size at any instant equals the packet count within the sliding window.
      * Index = numUAV of the observer (1..N-1); index 0 unused.
      */
     @SuppressWarnings("unchecked")
     public static ArrayDeque<Long>[] observerPacketTimestamps = new ArrayDeque[0];
 
     /**
-     * Leader's estimated UTM position computed as the delay-weighted centroid
-     * of the observer positions.  Null when no observers are in range.
+     * Leader's estimated UTM position.  Null when no observers are in range.
      */
     public static final AtomicReference<Location2DUTM> estimatedLeaderPosition =
             new AtomicReference<>(null);

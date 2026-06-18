@@ -13,6 +13,7 @@ import es.upv.grc.mapper.Location2DUTM;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -25,6 +26,30 @@ class GpsDeniedLeaderListenerThread extends Thread {
     private static final long PACKET_WINDOW_MS     = 10_000;  // TUNING
     private static final int  MONTE_CARLO_SAMPLES  = 1000;
 
+    // ── Plausibility gate + bootstrap seed ───────────────────────────────
+    // Raw multilateration occasionally produces position jumps of hundreds to thousands of
+    // metres (noisy PDR-derived ranges, worst when the in-range anchor set shrinks).  These
+    // are physically impossible for a leader limited to leaderSpeed, so they are gated out:
+    // an estimate is published only if it lies within a plausible-movement budget of the last
+    // accepted one; otherwise the last valid estimate is held.  The anchor is seeded with the
+    // robust median of the estimates gathered during the stationary calibration hover (no
+    // ground truth).  A consensus/timeout escape re-anchors if the seed or anchor turns out
+    // wrong, so the gate cannot lock onto a bad position.  Output-based: works for both the
+    // multilateration and FIXED_RANGE paths.
+    /** Calibration estimates aggregated (median) to seed the gate anchor. */
+    private static final int    BOOTSTRAP_MIN_SAMPLES   = 20;      // TUNING
+    /** Tolerated normal estimation jitter (m): the gate's fixed budget term. */
+    private static final double GATE_NOISE_ENVELOPE_M   = 350.0;   // ACTIVADO
+    //private static final double GATE_NOISE_ENVELOPE_M   = 1e9;   // DESACTIVADO
+    /** Multiplier on leaderSpeed for the max plausible travel between accepted fixes. */
+    private static final double GATE_SPEED_MARGIN       = 1.5;     // TUNING
+    /** A continuous reject streak ≥ this (ms) with clustered candidates re-anchors the gate. */
+    private static final long   GATE_CONSENSUS_MS       = 1_500;   // TUNING
+    /** Max spread (m) among recent rejected candidates to treat them as one consistent cluster. */
+    private static final double GATE_CONSENSUS_SPREAD_M = 350.0;   // TUNING
+    /** Backstop (ms): force a re-anchor if nothing is accepted for this long, ignoring spread. */
+    private static final long   GATE_RESET_TIMEOUT_MS   = 8_000;   // TUNING
+
 
     private final ArduSim arduSim;
     private final GUI gui;
@@ -36,6 +61,17 @@ class GpsDeniedLeaderListenerThread extends Thread {
     private long lastSampleTime = 0;
 
     private final Random rng = new Random();
+
+    // ── Plausibility-gate state (listener-private; the published output is estimatedLeaderPosition) ──
+    /** Last accepted position; reference for the plausibility budget.  Null until bootstrap seeds it. */
+    private Location2DUTM gateAnchor = null;
+    /** Time (ms) of the last accepted estimate; drives the movement budget and the reject streak. */
+    private long gateLastAcceptMs = 0;
+    /** Calibration estimates aggregated by median to seed the anchor (bootstrap). */
+    private final List<Location2DUTM> bootstrapBuffer = new ArrayList<>();
+    /** Recent rejected candidates and their timestamps, pruned to GATE_CONSENSUS_MS, for the re-anchor escape. */
+    private final ArrayDeque<Location2DUTM> rejectPts   = new ArrayDeque<>();
+    private final ArrayDeque<Long>          rejectTimes = new ArrayDeque<>();
 
     GpsDeniedLeaderListenerThread() {
         super("GpsDenied-LeaderListener");
@@ -136,10 +172,81 @@ class GpsDeniedLeaderListenerThread extends Thread {
         Location2DUTM estimate = useMultilateration
                 ? multilaterate(inRange, packetCounts, R, geomEst)
                 : geomEst;
-        GpsDeniedParam.estimatedLeaderPosition.set(estimate);
-        GpsDeniedParam.lastValidEstimateTimeMs.set(System.currentTimeMillis());
-        logSample(now, estimate, truePos, n);
-        gui.updateGlobalInformation("Observadores en rango: " + n);
+        if (estimate == null) {   // no usable candidate this cycle
+            logSample(now, null, truePos, n);
+            return;
+        }
+
+        // ── Bootstrap: seed the gate anchor with the robust median of the calibration
+        // estimates.  The leader is stationary during calibration, so they all measure the
+        // same point.  Collection waits until the PDR window is warm (else the ranges, and
+        // thus the estimates, are cold-biased); nothing is published until the anchor is
+        // seeded, which is harmless because the leader is hovering.  No ground truth is used.
+        if (gateAnchor == null) {
+            if (useMultilateration && now - arduSim.getExperimentStartTime() < PACKET_WINDOW_MS) {
+                gui.updateGlobalInformation("Observadores en rango: " + n + " (calentando ventana PDR)");
+                logSample(now, null, truePos, n);
+                return;
+            }
+            bootstrapBuffer.add(estimate);
+            if (bootstrapBuffer.size() < BOOTSTRAP_MIN_SAMPLES) {
+                gui.updateGlobalInformation("Observadores en rango: " + n
+                        + " (sembrando ancla " + bootstrapBuffer.size() + "/" + BOOTSTRAP_MIN_SAMPLES + ")");
+                logSample(now, null, truePos, n);
+                return;
+            }
+            gateAnchor = componentwiseMedian(bootstrapBuffer);
+            gateLastAcceptMs = now;
+            bootstrapBuffer.clear();
+            publishEstimate(now, gateAnchor, truePos, n);
+            return;
+        }
+
+        // ── Plausibility gate: publish only if the candidate is within the movement budget
+        // (fixed jitter envelope + max plausible travel since the last accepted fix).
+        double dtSec   = Math.max(0.0, (now - gateLastAcceptMs) / 1000.0);
+        double maxJump = GATE_NOISE_ENVELOPE_M + GATE_SPEED_MARGIN * GpsDeniedParam.leaderSpeed * dtSec;
+        double jump    = dist(estimate, gateAnchor);
+        if (jump <= maxJump) {
+            gateAnchor = estimate;
+            gateLastAcceptMs = now;
+            rejectPts.clear();
+            rejectTimes.clear();
+            publishEstimate(now, estimate, truePos, n);
+            return;
+        }
+
+        // Rejected — physically impossible jump.  Hold the last valid estimate: leave
+        // estimatedLeaderPosition and lastValidEstimateTimeMs untouched and log a no-estimate
+        // sample, so the leader coasts on its last good fix.
+        rejectPts.addLast(estimate);
+        rejectTimes.addLast(now);
+        while (!rejectTimes.isEmpty() && now - rejectTimes.peekFirst() > GATE_CONSENSUS_MS) {
+            rejectTimes.pollFirst();
+            rejectPts.pollFirst();
+        }
+        gui.updateGlobalInformation("Observadores en rango: " + n + " (salto implausible "
+                + String.format("%.0f", jump) + " m — manteniendo última estimación)");
+        logSample(now, null, truePos, n);
+
+        // Escape from a wrong anchor/seed: re-anchor when good estimates are consistently
+        // rejected.  Consensus = a reject streak ≥ GATE_CONSENSUS_MS whose recent candidates
+        // cluster within GATE_CONSENSUS_SPREAD_M (so a brief outlier never re-anchors).
+        // Timeout = backstop so the gate can never freeze on a bad anchor forever.
+        long    rejectDurMs = now - gateLastAcceptMs;
+        boolean timedOut    = rejectDurMs >= GATE_RESET_TIMEOUT_MS;
+        List<Location2DUTM> recent = new ArrayList<>(rejectPts);
+        Location2DUTM cluster = componentwiseMedian(recent);
+        boolean consensus = rejectDurMs >= GATE_CONSENSUS_MS
+                && maxSpread(recent, cluster) <= GATE_CONSENSUS_SPREAD_M;
+        if (consensus || timedOut) {
+            gateAnchor = cluster;
+            gateLastAcceptMs = now;
+            rejectPts.clear();
+            rejectTimes.clear();
+            gui.logVerboseUAV("GpsDenied leader: gate re-anchored ("
+                    + (timedOut ? "timeout" : "consensus") + ").");
+        }
     }
 
     /** Appends one PositionSample to the log, throttled to BROADCAST_PERIOD_MS. */
@@ -307,6 +414,50 @@ class GpsDeniedLeaderListenerThread extends Thread {
             if (dx * dx + dy * dy > R2) return false;
         }
         return true;
+    }
+
+    // ── Plausibility-gate helpers ────────────────────────────────────────
+
+    /** Publishes an accepted estimate: updates the shared output + emergency timer, logs, refreshes GUI. */
+    private void publishEstimate(long now, Location2DUTM est, Location2DUTM truePos, int n) {
+        GpsDeniedParam.estimatedLeaderPosition.set(est);
+        GpsDeniedParam.lastValidEstimateTimeMs.set(now);
+        logSample(now, est, truePos, n);
+        gui.updateGlobalInformation("Observadores en rango: " + n);
+    }
+
+    /** Component-wise median (median of x, median of y); robust to outliers (breakdown 0.5). */
+    private static Location2DUTM componentwiseMedian(List<Location2DUTM> pts) {
+        int m = pts.size();
+        double[] xs = new double[m];
+        double[] ys = new double[m];
+        for (int i = 0; i < m; i++) {
+            xs[i] = pts.get(i).x;
+            ys[i] = pts.get(i).y;
+        }
+        Arrays.sort(xs);
+        Arrays.sort(ys);
+        return new Location2DUTM(median(xs), median(ys));
+    }
+
+    private static double median(double[] sorted) {
+        int m = sorted.length;
+        return (m % 2 == 1) ? sorted[m / 2] : 0.5 * (sorted[m / 2 - 1] + sorted[m / 2]);
+    }
+
+    /** Largest distance from any point in {@code pts} to {@code center}. */
+    private static double maxSpread(List<Location2DUTM> pts, Location2DUTM center) {
+        double max = 0.0;
+        for (Location2DUTM p : pts) {
+            max = Math.max(max, dist(p, center));
+        }
+        return max;
+    }
+
+    /** Euclidean distance between two UTM points. */
+    private static double dist(Location2DUTM a, Location2DUTM b) {
+        double dx = a.x - b.x, dy = a.y - b.y;
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
 }

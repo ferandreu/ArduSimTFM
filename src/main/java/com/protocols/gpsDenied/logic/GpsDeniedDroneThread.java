@@ -90,8 +90,8 @@ class GpsDeniedDroneThread extends Thread {
         gui.updateProtocolState(GpsDeniedText.CALIBRATING);
         copter.setPlannedSpeed(GpsDeniedParam.leaderSpeed);
 
-        // Hover for CALIBRATION_MS so the listener thread accumulates packets and
-        // the packet-rate correction converges before the leader starts moving.
+        // Hover for CALIBRATION_MS so the listener thread accumulates packets
+        // before the leader starts moving.
         gui.logUAV("GpsDenied leader: calibrating for " + (CALIBRATION_MS / 1000) + " s.");
         long calibrationEnd = System.currentTimeMillis() + CALIBRATION_MS;
         while (System.currentTimeMillis() < calibrationEnd) {
