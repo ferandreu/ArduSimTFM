@@ -56,19 +56,9 @@ public class GpsDeniedParam {
     /** An observer is considered out of range if not heard for this long (ms). */
     public static final long OBSERVER_TIMEOUT_MS  = 750;
 
-    // ── Runtime state ────────────────────────────────────────────────────
-    /**
-     * Per-UAV flying target, computed once in setStartingLocation() and reused
-     * in the drone threads to avoid re-computing during flight.
-     * Index = numUAV.  Size = API.getArduSim().getNumUAVs().
-     */
+
     public static Location3DUTM[] flyingTargets;
 
-    /**
-     * Optional intermediate waypoint for the leader.
-     * Null when midpointAlong == 0 (straight line to final target).
-     * Computed in setStartingLocation().
-     */
     public static volatile Location3DUTM intermediateTarget = null;
 
     /** UTM position of the leader's takeoff point (route origin). Computed in setStartingLocation(). */
@@ -80,27 +70,10 @@ public class GpsDeniedParam {
     /** Per-UAV generic state counter (available for future extensions). */
     public static AtomicInteger[] state;
 
-    // ── Broadcast-based position inference (leader only) ─────────────────
-    /**
-     * Per-UAV timestamp (ms) of the last OBSERVER_POSITION broadcast heard by
-     * the leader.  Index = numUAV of the observer (1..N-1); index 0 unused.
-     * Initialised to 0 (never heard).
-     */
     public static long[] observerLastHeard;
 
-    /**
-     * Per-UAV last known UTM position received from each observer's broadcast.
-     * Index = numUAV of the observer.  Null until first packet is received.
-     */
     public static Location2DUTM[] observerLastPos;
 
-    /**
-     * Per-observer queue of reception timestamps (ms) for OBSERVER_POSITION packets.
-     * Only the last PACKET_WINDOW_MS (30 s) of timestamps are kept; older entries are
-     * pruned lazily in GpsDeniedLeaderListenerThread before each estimation cycle.
-     * The queue size at any instant equals the packet count within the sliding window.
-     * Index = numUAV of the observer (1..N-1); index 0 unused.
-     */
     @SuppressWarnings("unchecked")
     public static ArrayDeque<Long>[] observerPacketTimestamps = new ArrayDeque[0];
 
@@ -110,26 +83,9 @@ public class GpsDeniedParam {
     public static final AtomicReference<Location2DUTM> estimatedLeaderPosition =
             new AtomicReference<>(null);
 
-    /**
-     * Wall-clock time (ms) of the last non-null estimate produced by the listener.
-     * Updated by GpsDeniedLeaderListenerThread; read by GpsDeniedDroneThread to
-     * measure null duration independently of main-loop polling jitter.
-     */
     public static final AtomicLong lastValidEstimateTimeMs = new AtomicLong(0);
 
-    /**
-     * Time-series log of (estimated position, true GPS position, error) for the
-     * leader, recorded once per estimation cycle by GpsDeniedLeaderListenerThread.
-     * Written during the experiment; read only after it finishes (logData / getExperimentResults).
-     * Initialised in initializeDataStructures().
-     */
     public static List<PositionSample> leaderPositionLog;
 
-    /**
-     * One DrawableCircleGeo per observer drone showing its broadcast range on the
-     * simulation map.  Index = numUAV (index 0 unused; 1..N-1 = observers).
-     * Created in startExperimentActionPerformed(); removed in logData().
-     * Null entries mean drawing is disabled (e.g. non-GUI mode or non-FIXED_RANGE model).
-     */
     public static DrawableCircleGeo[] observerRangeCircles;
 }

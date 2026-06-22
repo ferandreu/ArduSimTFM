@@ -26,20 +26,12 @@ class GpsDeniedLeaderListenerThread extends Thread {
     private static final long PACKET_WINDOW_MS     = 10_000;  // TUNING
     private static final int  MONTE_CARLO_SAMPLES  = 1000;
 
-    // ── Plausibility gate + bootstrap seed ───────────────────────────────
-    // Raw multilateration occasionally produces position jumps of hundreds to thousands of
-    // metres (noisy PDR-derived ranges, worst when the in-range anchor set shrinks).  These
-    // are physically impossible for a leader limited to leaderSpeed, so they are gated out:
-    // an estimate is published only if it lies within a plausible-movement budget of the last
-    // accepted one; otherwise the last valid estimate is held.  The anchor is seeded with the
-    // robust median of the estimates gathered during the stationary calibration hover (no
-    // ground truth).  A consensus/timeout escape re-anchors if the seed or anchor turns out
-    // wrong, so the gate cannot lock onto a bad position.  Output-based: works for both the
-    // multilateration and FIXED_RANGE paths.
+    // Plausibility gate + bootstrap seed
+
     /** Calibration estimates aggregated (median) to seed the gate anchor. */
     private static final int    BOOTSTRAP_MIN_SAMPLES   = 20;      // TUNING
     /** Tolerated normal estimation jitter (m): the gate's fixed budget term. */
-    private static final double GATE_NOISE_ENVELOPE_M   = 350.0;   // ACTIVADO
+    private static final double GATE_NOISE_ENVELOPE_M   = 350.0;   // TUNING
     //private static final double GATE_NOISE_ENVELOPE_M   = 1e9;   // DESACTIVADO
     /** Multiplier on leaderSpeed for the max plausible travel between accepted fixes. */
     private static final double GATE_SPEED_MARGIN       = 1.5;     // TUNING
@@ -49,6 +41,13 @@ class GpsDeniedLeaderListenerThread extends Thread {
     private static final double GATE_CONSENSUS_SPREAD_M = 350.0;   // TUNING
     /** Backstop (ms): force a re-anchor if nothing is accepted for this long, ignoring spread. */
     private static final long   GATE_RESET_TIMEOUT_MS   = 8_000;   // TUNING
+
+    //Kalman
+
+    private static final double KF_ACCEL_NOISE  = 0.5;      // TUNING  q (m²/s⁴)
+    private static final double KF_MEAS_NOISE   = 22_500.0; // TUNING  R ≈ (150 m)² per-cycle estimate variance
+    private static final double KF_INIT_POS_VAR = 22_500.0; // TUNING  initial position variance (m²)
+    private static final double KF_INIT_VEL_VAR = 100.0;    // TUNING  initial velocity variance (m²/s²)
 
 
     private final ArduSim arduSim;
@@ -62,16 +61,13 @@ class GpsDeniedLeaderListenerThread extends Thread {
 
     private final Random rng = new Random();
 
-    // ── Plausibility-gate state (listener-private; the published output is estimatedLeaderPosition) ──
-    /** Last accepted position; reference for the plausibility budget.  Null until bootstrap seeds it. */
     private Location2DUTM gateAnchor = null;
-    /** Time (ms) of the last accepted estimate; drives the movement budget and the reject streak. */
     private long gateLastAcceptMs = 0;
-    /** Calibration estimates aggregated by median to seed the anchor (bootstrap). */
     private final List<Location2DUTM> bootstrapBuffer = new ArrayList<>();
-    /** Recent rejected candidates and their timestamps, pruned to GATE_CONSENSUS_MS, for the re-anchor escape. */
     private final ArrayDeque<Location2DUTM> rejectPts   = new ArrayDeque<>();
     private final ArrayDeque<Long>          rejectTimes = new ArrayDeque<>();
+    private final GpsDeniedKalmanFilter kalman =
+            new GpsDeniedKalmanFilter(KF_ACCEL_NOISE, KF_MEAS_NOISE, KF_INIT_POS_VAR, KF_INIT_VEL_VAR);
 
     GpsDeniedLeaderListenerThread() {
         super("GpsDenied-LeaderListener");
@@ -98,8 +94,6 @@ class GpsDeniedLeaderListenerThread extends Thread {
         gui.logVerboseUAV("GpsDenied leader: listener stopped.");
     }
 
-    // ── Message processing ───────────────────────────────────────────────
-
     private void processMessage(byte[] data) {
         long receiveTime = System.currentTimeMillis();
         input.setBuffer(data);
@@ -118,13 +112,9 @@ class GpsDeniedLeaderListenerThread extends Thread {
                 + " @ (" + String.format("%.1f", x) + ", " + String.format("%.1f", y) + ")");
     }
 
-    // ── Position estimation ──────────────────────────────────────────────
-
     private void updateEstimatedPosition() {
         long now    = System.currentTimeMillis();
         int numUAVs = API.getArduSim().getNumUAVs();
-
-        // Collect observers heard recently.
         List<Location2DUTM> inRange      = new ArrayList<>();
         List<Long>          packetCounts = new ArrayList<>();
         for (int i = 1; i < numUAVs; i++) {
@@ -177,11 +167,7 @@ class GpsDeniedLeaderListenerThread extends Thread {
             return;
         }
 
-        // ── Bootstrap: seed the gate anchor with the robust median of the calibration
-        // estimates.  The leader is stationary during calibration, so they all measure the
-        // same point.  Collection waits until the PDR window is warm (else the ranges, and
-        // thus the estimates, are cold-biased); nothing is published until the anchor is
-        // seeded, which is harmless because the leader is hovering.  No ground truth is used.
+        // ── Bootstrap: seed the gate anchor with the robust median of the calibration estimates.
         if (gateAnchor == null) {
             if (useMultilateration && now - arduSim.getExperimentStartTime() < PACKET_WINDOW_MS) {
                 gui.updateGlobalInformation("Observadores en rango: " + n + " (calentando ventana PDR)");
@@ -198,21 +184,23 @@ class GpsDeniedLeaderListenerThread extends Thread {
             gateAnchor = componentwiseMedian(bootstrapBuffer);
             gateLastAcceptMs = now;
             bootstrapBuffer.clear();
-            publishEstimate(now, gateAnchor, truePos, n);
+            kalman.reset(gateAnchor.x, gateAnchor.y);   // seed the filter at the bootstrap median
+            publishEstimate(now, filtered(), truePos, n);
             return;
         }
 
         // ── Plausibility gate: publish only if the candidate is within the movement budget
-        // (fixed jitter envelope + max plausible travel since the last accepted fix).
         double dtSec   = Math.max(0.0, (now - gateLastAcceptMs) / 1000.0);
         double maxJump = GATE_NOISE_ENVELOPE_M + GATE_SPEED_MARGIN * GpsDeniedParam.leaderSpeed * dtSec;
         double jump    = dist(estimate, gateAnchor);
         if (jump <= maxJump) {
             gateAnchor = estimate;
-            gateLastAcceptMs = now;
             rejectPts.clear();
             rejectTimes.clear();
-            publishEstimate(now, estimate, truePos, n);
+            kalman.predict(dtSec);                  // advance the track over the elapsed gap
+            kalman.update(estimate.x, estimate.y);  // fuse the accepted measurement
+            gateLastAcceptMs = now;
+            publishEstimate(now, filtered(), truePos, n);
             return;
         }
 
@@ -244,6 +232,7 @@ class GpsDeniedLeaderListenerThread extends Thread {
             gateLastAcceptMs = now;
             rejectPts.clear();
             rejectTimes.clear();
+            kalman.reset(cluster.x, cluster.y);     // restart the filter at the new reference
             gui.logVerboseUAV("GpsDenied leader: gate re-anchored ("
                     + (timedOut ? "timeout" : "consensus") + ").");
         }
@@ -265,16 +254,7 @@ class GpsDeniedLeaderListenerThread extends Thread {
     }
 
 
-    // ── Model-based multilateration (DISTANCE_5GHZ) ──────────────────────
 
-    /**
-     * Estimates the leader position by inverting the propagation model: each observer's
-     * packet-delivery ratio over the window gives an absolute range estimate, and the set
-     * of (position, range) pairs is solved by linear least squares (range-based
-     * multilateration).  The result is clamped to the feasibility region (intersection of
-     * the observers' max-range circles); {@code fallback} (the geometric centroid, always
-     * inside) is used both as the clamp anchor and when the system is degenerate.
-     */
     private Location2DUTM multilaterate(List<Location2DUTM> observers,
                                         List<Long> packetCounts,
                                         double R, Location2DUTM fallback) {
@@ -356,20 +336,6 @@ class GpsDeniedLeaderListenerThread extends Thread {
                                  inside.y + lo * (cy - inside.y));
     }
 
-    // ── Geometric intersection helpers ───────────────────────────────────
-
-    /**
-     * Returns the area centroid of the intersection region of N equal-radius circles
-     * (N ≥ 3) via Monte Carlo integration.
-     *
-     * A tight axis-aligned bounding box is derived from the per-circle x/y ranges and
-     * used as the sampling domain, which keeps the hit-rate high regardless of observer
-     * count.  MONTE_CARLO_SAMPLES points are drawn uniformly; those that lie inside
-     * every circle are averaged to produce the area centroid.
-     *
-     * Returns null when the bounding box is empty (circles provably don't overlap) or
-     * when no sampled point falls inside all circles (degenerate geometry).
-     */
     private Location2DUTM geometricIntersectionCenter(List<Location2DUTM> observers, double R) {
         // Intersection of axis-aligned bounding boxes: tightest possible sampling domain.
         double xMin = Double.NEGATIVE_INFINITY, xMax = Double.POSITIVE_INFINITY;
@@ -398,10 +364,6 @@ class GpsDeniedLeaderListenerThread extends Thread {
         return (hits == 0) ? null : new Location2DUTM(sumX / hits, sumY / hits);
     }
 
-    /**
-     * Returns true if point pt lies inside or on every circle in the list,
-     * excluding circles at indices skip1 and skip2 (-1 to skip none).
-     */
     private boolean insideAllCircles(double[] pt,
                                      List<Location2DUTM> observers, double R,
                                      int skip1, int skip2) {
@@ -416,7 +378,6 @@ class GpsDeniedLeaderListenerThread extends Thread {
         return true;
     }
 
-    // ── Plausibility-gate helpers ────────────────────────────────────────
 
     /** Publishes an accepted estimate: updates the shared output + emergency timer, logs, refreshes GUI. */
     private void publishEstimate(long now, Location2DUTM est, Location2DUTM truePos, int n) {
@@ -424,6 +385,11 @@ class GpsDeniedLeaderListenerThread extends Thread {
         GpsDeniedParam.lastValidEstimateTimeMs.set(now);
         logSample(now, est, truePos, n);
         gui.updateGlobalInformation("Observadores en rango: " + n);
+    }
+
+    /** Current Kalman-filtered position as a UTM point. */
+    private Location2DUTM filtered() {
+        return new Location2DUTM(kalman.getX(), kalman.getY());
     }
 
     /** Component-wise median (median of x, median of y); robust to outliers (breakdown 0.5). */

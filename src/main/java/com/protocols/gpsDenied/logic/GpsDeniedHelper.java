@@ -254,11 +254,6 @@ public class GpsDeniedHelper extends ProtocolHelper {
         }
     }
 
-    /**
-     * Takes off ALL UAVs simultaneously in GUIDED mode and blocks until every
-     * one is airborne.  This is the confirmed-working takeoff pattern and puts
-     * every drone in Guided_armed state before the experiment starts.
-     */
     @Override
     public void setupActionPerformed() {
         int numUAVs = API.getArduSim().getNumUAVs();
@@ -279,7 +274,7 @@ public class GpsDeniedHelper extends ProtocolHelper {
         }
     }
 
-    /** Drone threads handle the rest once isExperimentInProgress() is true. */
+
     @Override
     public void startExperimentActionPerformed() {
         if (Param.role != ArduSim.SIMULATOR_GUI) return;
@@ -299,12 +294,7 @@ public class GpsDeniedHelper extends ProtocolHelper {
         }
     }
 
-    /**
-     * Called periodically by ArduSim during the experiment.
-     * Drone threads manage the landing sequence themselves:
-     * leader lands after reaching target, then signals observers to land.
-     * Calling land() here would terminate the flight prematurely.
-     */
+
     @Override
     public void forceExperimentEnd() {}
 

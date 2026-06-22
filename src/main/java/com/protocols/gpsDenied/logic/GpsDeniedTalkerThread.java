@@ -11,12 +11,7 @@ import es.upv.grc.mapper.Location2DUTM;
 
 import java.util.Arrays;
 
-/**
- * One instance per observer drone (numUAV >= 1).
- * Broadcasts this drone's current UTM position at a fixed period so the
- * leader can determine which observers are within communication range and
- * use that to estimate its own approximate position.
- */
+
 class GpsDeniedTalkerThread extends Thread {
 
     private final int numUAV;

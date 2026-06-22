@@ -7,22 +7,7 @@ import com.api.copter.Copter;
 import es.upv.grc.mapper.Location2DUTM;
 import es.upv.grc.mapper.Location3DUTM;
 
-/**
- * One thread per UAV.  Takeoff has already completed in setupActionPerformed()
- * so drones are in Guided_armed state when isExperimentInProgress() becomes true.
- *
- * Leader (numUAV == 0):
- *   Sends velocity commands every 200 ms toward the pre-computed target using the
- *   estimated position for direction.  The drone moves ONLY when a valid estimate
- *   exists (≥3 observers in range); otherwise it holds position in GUIDED mode.
- *   Arrival uses along-track progress on the planned segment (robust to lateral
- *   estimation error) on a smoothed estimate, gated between a minimum and a maximum
- *   accumulated active-flight time; the maximum forces arrival if proximity never confirms.
- *
- * Observer (numUAV >= 1):
- *   Hovers (GUIDED position hold — no velocity commands needed) until the
- *   leader sets leaderLanded, then lands.
- */
+
 class GpsDeniedDroneThread extends Thread {
 
     private static final int    LOOP_MS               = 200;
@@ -49,12 +34,6 @@ class GpsDeniedDroneThread extends Thread {
     private final GUI     gui;
     private final Copter  copter;
 
-    /**
-     * Accumulated active-flight time (ms) since calibration end.
-     * Only incremented when a movement command is issued (estimate non-null, drone moving).
-     * Never reset between waypoints — cumulative across the whole route.
-     * Leader only; stays 0 for observers.
-     */
     private long activeFlightMs = 0;
 
     GpsDeniedDroneThread(int numUAV) {
@@ -84,7 +63,6 @@ class GpsDeniedDroneThread extends Thread {
         land();
     }
 
-    // ── Leader: velocity loop ─────────────────────────────────────────────
 
     private void flyToTarget() {
         gui.updateProtocolState(GpsDeniedText.CALIBRATING);
@@ -102,12 +80,8 @@ class GpsDeniedDroneThread extends Thread {
 
         gui.updateProtocolState(GpsDeniedText.FLYING);
 
-        // Seed the no-estimate timer from flight start, not calibration start.
         GpsDeniedParam.lastValidEstimateTimeMs.set(System.currentTimeMillis());
 
-        // Compute cumulative min/max active-flight time thresholds from planned geometry.
-        // Using config-derived distances avoids any estimation bias at segment start.
-        // Thresholds are cumulative: the final-target values include the first segment's time.
         Location2DUTM nominalLeaderStart = GpsDeniedParam.leaderStartUTM;
         double        msPerMeter         = 1000.0 / GpsDeniedParam.leaderSpeed;
 
@@ -145,23 +119,7 @@ class GpsDeniedDroneThread extends Thread {
         gui.updateProtocolState(GpsDeniedText.FINISHED);
     }
 
-    /**
-     * Steers toward {@code target} (direction from the raw estimate) while moving, holding
-     * position whenever no estimate is available.
-     *
-     * Arrival is detected on along-track progress: the (EMA-smoothed) estimate is projected
-     * onto the planned segment axis from {@code nominalStart} to {@code target}, giving a
-     * distance-to-go that ignores lateral estimation error.  Arrival is declared when either:
-     *   - activeFlightMs ≥ maxFlightMs (time ceiling): forces arrival even if the estimate
-     *     never confirms proximity, so a bad estimate can't keep the drone flying forever; or
-     *   - activeFlightMs ≥ minFlightMs AND the distance-to-go has stayed ≤ ARRIVAL_THRESHOLD_M
-     *     (overshoot included, i.e. negative) for ARRIVAL_SAMPLES consecutive samples.
-     *
-     * activeFlightMs is cumulative and only advances while moving, so the thresholds are
-     * unaffected by hold time when no estimate is available.
-     *
-     * Returns false only on emergency stop (no estimate for > EMERGENCY_MS).
-     */
+
     private boolean flyToWaypoint(Location3DUTM target, String label,
                                    Location2DUTM nominalStart, double minFlightMs, double maxFlightMs) {
         // Planned segment axis (config geometry, noise-free).
@@ -239,13 +197,11 @@ class GpsDeniedDroneThread extends Thread {
         return true;
     }
 
-    /** 2-D distance between a UTM-2D point and the XY projection of a UTM-3D point. */
     private static double dist2D(Location2DUTM a, Location3DUTM b) {
         double dx = b.x - a.x, dy = b.y - a.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // ── Observer: hover until leader arrives ─────────────────────────────
 
     private void hoverUntilLeaderDone() {
         gui.updateProtocolState(GpsDeniedText.HOVERING);
@@ -254,7 +210,6 @@ class GpsDeniedDroneThread extends Thread {
         }
     }
 
-    // ── Land ─────────────────────────────────────────────────────────────
 
     private void land() {
         gui.updateProtocolState(GpsDeniedText.LANDING);
