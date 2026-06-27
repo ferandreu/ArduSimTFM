@@ -39,9 +39,7 @@ public class GpsDeniedParam {
     public static volatile double altitude = 20.0;
     /** Leader cruise speed (m/s). */
     public static volatile double leaderSpeed = 10.0;
-    // ── DISTANCE_5GHZ propagation model constants ────────────────────────
     // Packet-loss probability vs distance d (m): pLoss = A·d² + B·d
-    // (must match RangeCalculusThread.isInRange).
     public static final double PROP_LOSS_A = 5.335e-7;   // 1/m²
     public static final double PROP_LOSS_B = 3.395e-5;   // 1/m
     /** Distance where pLoss = 1: the model's true maximum range (~1370 m). */

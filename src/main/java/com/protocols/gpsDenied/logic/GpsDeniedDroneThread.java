@@ -7,7 +7,6 @@ import com.api.copter.Copter;
 import es.upv.grc.mapper.Location2DUTM;
 import es.upv.grc.mapper.Location3DUTM;
 
-
 class GpsDeniedDroneThread extends Thread {
 
     private static final int    LOOP_MS               = 200;
@@ -16,18 +15,18 @@ class GpsDeniedDroneThread extends Thread {
     /** Along-track distance-to-go (m) below which the drone counts as "near" the waypoint.
      *  Measured by projecting the estimate onto the planned segment axis, so lateral
      *  estimation error does not prevent arrival. */
-    private static final double ARRIVAL_THRESHOLD_M   = 200.0;   // TUNING
+    private static final double ARRIVAL_THRESHOLD_M   = 250.0;   // TUNING
     /** Consecutive near (smoothed) samples required to confirm arrival by proximity. */
-    private static final int    ARRIVAL_SAMPLES       = 8;       // TUNING
+    private static final int    ARRIVAL_SAMPLES       = 6;       // TUNING
     /** EMA factor for the estimate used ONLY in arrival detection (not steering):
      *  higher = more responsive, lower = smoother.  Filters spikes that reset the counter. */
     private static final double ESTIMATE_EMA_ALPHA    = 0.30;    // TUNING
     /** Min fraction of a segment's nominal flight time (active flight only) before arrival
      *  may be declared — prevents early arrival from estimation bias near the segment start. */
-    private static final double MIN_ARRIVAL_FRACTION  = 0.75;    // TUNING
+    private static final double MIN_ARRIVAL_FRACTION  = 0.9;    // TUNING
     /** Max fraction of a segment's nominal flight time after which arrival is forced even if
      *  proximity never confirms — prevents flying past a waypoint forever on a bad estimate. */
-    private static final double MAX_ARRIVAL_FRACTION  = 1.30;    // TUNING
+    private static final double MAX_ARRIVAL_FRACTION  = 1.20;    // TUNING
 
     private final int     numUAV;
     private final ArduSim arduSim;

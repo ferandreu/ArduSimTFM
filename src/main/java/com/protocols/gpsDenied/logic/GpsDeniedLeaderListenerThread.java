@@ -27,7 +27,6 @@ class GpsDeniedLeaderListenerThread extends Thread {
     private static final int  MONTE_CARLO_SAMPLES  = 1000;
 
     // Plausibility gate + bootstrap seed
-
     /** Calibration estimates aggregated (median) to seed the gate anchor. */
     private static final int    BOOTSTRAP_MIN_SAMPLES   = 20;      // TUNING
     /** Tolerated normal estimation jitter (m): the gate's fixed budget term. */
@@ -48,6 +47,7 @@ class GpsDeniedLeaderListenerThread extends Thread {
     private static final double KF_MEAS_NOISE   = 22_500.0; // TUNING  R ≈ (150 m)² per-cycle estimate variance
     private static final double KF_INIT_POS_VAR = 22_500.0; // TUNING  initial position variance (m²)
     private static final double KF_INIT_VEL_VAR = 100.0;    // TUNING  initial velocity variance (m²/s²)
+    private static final int    KF_MIN_OBSERVERS = 4;       // TUNING
 
 
     private final ArduSim arduSim;
@@ -197,10 +197,18 @@ class GpsDeniedLeaderListenerThread extends Thread {
             gateAnchor = estimate;
             rejectPts.clear();
             rejectTimes.clear();
-            kalman.predict(dtSec);                  // advance the track over the elapsed gap
-            kalman.update(estimate.x, estimate.y);  // fuse the accepted measurement
             gateLastAcceptMs = now;
-            publishEstimate(now, filtered(), truePos, n);
+            if (n >= KF_MIN_OBSERVERS) {
+                kalman.predict(dtSec);                  // advance the track over the elapsed gap
+                kalman.update(estimate.x, estimate.y);  // fuse the accepted measurement
+                publishEstimate(now, filtered(), truePos, n);
+            } else {
+                // Too few observers for reliable smoothing: publish the raw gated estimate and
+                // keep the filter shadowing it (position only, zero velocity) so it never coasts
+                // on a stale velocity and re-engages cleanly when coverage improves.
+                kalman.reset(estimate.x, estimate.y);
+                publishEstimate(now, estimate, truePos, n);
+            }
             return;
         }
 
